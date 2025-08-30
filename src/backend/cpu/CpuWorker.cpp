@@ -1,25 +1,29 @@
 /* XMRig
- * Copyright (c) 2018-2021 SChernykh   <https://github.com/SChernykh>
+ * Copyright (c) 2018-2021 SChernykh    <https://github.com/SChernykh>
  * Copyright (c) 2016-2021 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
  *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
- *   (at your option) any later version.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
- *   along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <cassert>
 #include <thread>
 #include <mutex>
+
+// Thêm các thư viện cần thiết để tạo độ trễ ngẫu nhiên
+#include <chrono>
 #include <random>
+
 
 #include "backend/cpu/Cpu.h"
 #include "backend/cpu/CpuWorker.h"
@@ -61,6 +65,15 @@ VirtualMemory* cn_heavyZen3Memory = nullptr;
 #endif
 
 } // namespace xmrig
+
+// Các biến ngẫu nhiên tĩnh để tạo độ trễ ngẫu nhiên cho mỗi luồng
+namespace {
+    std::mt19937_64 rng(std::chrono::steady_clock::now().time_since_epoch().count());
+    // Làm việc ngẫu nhiên 5-15 chu kỳ trước khi nghỉ
+    std::uniform_int_distribution<int> dist_work(5, 15);
+    // Nghỉ ngẫu nhiên 1-4 ms
+    std::uniform_int_distribution<int> dist_sleep_ms(1, 4);
+}
 
 
 template<size_t N>
@@ -172,26 +185,26 @@ bool xmrig::CpuWorker<N>::selfTest()
 #   endif
 
     if (m_algorithm.family() == Algorithm::CN) {
-        const bool rc = verify(Algorithm::CN_0,      test_output_v0)   &&
-                        verify(Algorithm::CN_1,      test_output_v1)   &&
-                        verify(Algorithm::CN_2,      test_output_v2)   &&
-                        verify(Algorithm::CN_FAST,   test_output_msr)  &&
-                        verify(Algorithm::CN_XAO,    test_output_xao)  &&
-                        verify(Algorithm::CN_RTO,    test_output_rto)  &&
-                        verify(Algorithm::CN_HALF,   test_output_half) &&
-                        verify2(Algorithm::CN_R,     test_output_r)    &&
-                        verify(Algorithm::CN_RWZ,    test_output_rwz)  &&
-                        verify(Algorithm::CN_ZLS,    test_output_zls)  &&
-                        verify(Algorithm::CN_CCX,    test_output_ccx)  &&
-                        verify(Algorithm::CN_DOUBLE, test_output_double);
+        const bool rc = verify(Algorithm::CN_0,      test_output_v0)     &&
+                         verify(Algorithm::CN_1,      test_output_v1)     &&
+                         verify(Algorithm::CN_2,      test_output_v2)     &&
+                         verify(Algorithm::CN_FAST,   test_output_msr)  &&
+                         verify(Algorithm::CN_XAO,    test_output_xao)  &&
+                         verify(Algorithm::CN_RTO,    test_output_rto)  &&
+                         verify(Algorithm::CN_HALF,   test_output_half) &&
+                         verify2(Algorithm::CN_R,      test_output_r)      &&
+                         verify(Algorithm::CN_RWZ,    test_output_rwz)  &&
+                         verify(Algorithm::CN_ZLS,    test_output_zls)  &&
+                         verify(Algorithm::CN_CCX,    test_output_ccx)  &&
+                         verify(Algorithm::CN_DOUBLE, test_output_double);
 
         return rc;
     }
 
 #   ifdef XMRIG_ALGO_CN_LITE
     if (m_algorithm.family() == Algorithm::CN_LITE) {
-        return verify(Algorithm::CN_LITE_0,    test_output_v0_lite) &&
-               verify(Algorithm::CN_LITE_1,    test_output_v1_lite);
+        return verify(Algorithm::CN_LITE_0,   test_output_v0_lite) &&
+               verify(Algorithm::CN_LITE_1,   test_output_v1_lite);
     }
 #   endif
 
@@ -235,27 +248,13 @@ void xmrig::CpuWorker<N>::hashrateData(uint64_t &hashCount, uint64_t &, uint64_t
     rawHashes = m_count;
 }
 
-// Hàm set CPU affinity ngẫu nhiên từ 40% đến 80% số lõi CPU
-void xmrig::CpuWorker<N>::setRandomAffinity() {
-    unsigned int max_cores = std::thread::hardware_concurrency(); // Lấy số lõi CPU tối đa
-    unsigned int min_cores = max_cores * 0.4;  // 40% số lõi
-    unsigned int max_selected_cores = max_cores * 0.8;  // 80% số lõi
 
-    unsigned int selected_cores = rand() % (max_selected_cores - min_cores + 1) + min_cores;  // Lựa chọn số lõi ngẫu nhiên trong khoảng này
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, selected_cores - 1);
-    
-    int randomCore = dis(gen);  // Chọn một lõi ngẫu nhiên
-
-    setAffinity(randomCore);  // Thiết lập affinity cho worker vào core ngẫu nhiên đã chọn
-}
-
-// Cập nhật hàm start() để gọi hàm setRandomAffinity
 template<size_t N>
 void xmrig::CpuWorker<N>::start()
 {
-    setRandomAffinity();  // Thiết lập CPU affinity ngẫu nhiên trước khi bắt đầu
+    // Các biến tĩnh để kiểm soát chu kỳ làm việc và nghỉ ngơi cho mỗi luồng
+    static int loop_counter = 0;
+    static int work_cycles = dist_work(rng);
 
     while (Nonce::sequence(Nonce::CPU) > 0) {
         if (Nonce::isPaused()) {
@@ -271,10 +270,10 @@ void xmrig::CpuWorker<N>::start()
             consumeJob();
         }
 
-        #ifdef XMRIG_ALGO_RANDOMX
+#       ifdef XMRIG_ALGO_RANDOMX
         bool first = true;
         alignas(16) uint64_t tempHash[8] = {};
-        #endif
+#       endif
 
         while (!Nonce::isOutdated(Nonce::CPU, m_job.sequence())) {
             const Job &job = m_job.currentJob();
@@ -288,11 +287,24 @@ void xmrig::CpuWorker<N>::start()
                 current_job_nonces[i] = readUnaligned(m_job.nonce(i));
             }
 
+#           ifdef XMRIG_FEATURE_BENCHMARK
+            if (m_benchSize) {
+                if (current_job_nonces[0] >= m_benchSize) {
+                    return BenchState::done();
+                }
+
+                // Make each hash dependent on the previous one in single thread benchmark to prevent cheating with multiple threads
+                if (m_threads == 1) {
+                    *(uint64_t*)(m_job.blob()) ^= BenchState::data();
+                }
+            }
+#           endif
+
             bool valid = true;
 
             uint8_t miner_signature_saved[64];
 
-            #ifdef XMRIG_ALGO_RANDOMX
+#           ifdef XMRIG_ALGO_RANDOMX
             uint8_t* miner_signature_ptr = m_job.blob() + m_job.nonceOffset() + m_job.nonceSize();
             if (job.algorithm().family() == Algorithm::RANDOM_X) {
                 if (first) {
@@ -314,10 +326,11 @@ void xmrig::CpuWorker<N>::start()
                 randomx_calculate_hash_next(m_vm, tempHash, m_job.blob(), job.size(), m_hash);
             }
             else
-            #endif
+#           endif
             {
                 switch (job.algorithm().family()) {
-                #ifdef XMRIG_ALGO_GHOSTRIDER
+
+#               ifdef XMRIG_ALGO_GHOSTRIDER
                 case Algorithm::GHOSTRIDER:
                     if (N == 8) {
                         ghostrider::hash_octa(m_job.blob(), job.size(), m_hash, m_ctx, m_ghHelper);
@@ -326,7 +339,7 @@ void xmrig::CpuWorker<N>::start()
                         valid = false;
                     }
                     break;
-                #endif
+#               endif
 
                 default:
                     fn(job.algorithm())(m_job.blob(), job.size(), m_hash, m_ctx, job.height());
@@ -342,6 +355,14 @@ void xmrig::CpuWorker<N>::start()
                 for (size_t i = 0; i < N; ++i) {
                     const uint64_t value = *reinterpret_cast<uint64_t*>(m_hash + (i * 32) + 24);
 
+#                   ifdef XMRIG_FEATURE_BENCHMARK
+                    if (m_benchSize) {
+                        if (current_job_nonces[i] < m_benchSize) {
+                            BenchState::add(value);
+                        }
+                    }
+                    else
+#                   endif
                     if (value < job.target()) {
                         JobResults::submit(job, current_job_nonces[i], m_hash + (i * 32), job.hasMinerSignature() ? miner_signature_saved : nullptr);
                     }
@@ -352,6 +373,19 @@ void xmrig::CpuWorker<N>::start()
             if (m_yield) {
                 std::this_thread::yield();
             }
+
+            // --- Thêm logic giới hạn CPU
+            loop_counter++;
+            if (loop_counter >= work_cycles) {
+                // Đặt luồng vào trạng thái ngủ ngẫu nhiên
+                int sleep_duration = dist_sleep_ms(rng);
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
+                
+                // Reset bộ đếm và lấy chu kỳ làm việc mới
+                loop_counter = 0;
+                work_cycles = dist_work(rng);
+            }
+            // --- Kết thúc logic giới hạn CPU
         }
 
         if (!Nonce::isPaused()) {
@@ -360,18 +394,138 @@ void xmrig::CpuWorker<N>::start()
     }
 }
 
+
 template<size_t N>
 bool xmrig::CpuWorker<N>::nextRound()
 {
+#   ifdef XMRIG_FEATURE_BENCHMARK
+    const uint32_t count = m_benchSize ? 1U : kReserveCount;
+#   else
     constexpr uint32_t count = kReserveCount;
+#   endif
 
     if (!m_job.nextRound(count, 1)) {
         JobResults::done(m_job.currentJob());
+
         return false;
     }
 
     return true;
 }
+
+
+template<size_t N>
+bool xmrig::CpuWorker<N>::verify(const Algorithm &algorithm, const uint8_t *referenceValue)
+{
+#   ifdef XMRIG_ALGO_GHOSTRIDER
+    if (algorithm == Algorithm::GHOSTRIDER_RTM) {
+        uint8_t blob[N * 80] = {};
+        for (size_t i = 0; i < N; ++i) {
+            blob[i * 80 + 0] = static_cast<uint8_t>(i);
+            blob[i * 80 + 4] = 0x10;
+            blob[i * 80 + 5] = 0x02;
+        }
+
+        uint8_t hash1[N * 32] = {};
+        ghostrider::hash_octa(blob, 80, hash1, m_ctx, 0, false);
+
+        for (size_t i = 0; i < N; ++i) {
+            blob[i * 80 + 0] = static_cast<uint8_t>(i);
+            blob[i * 80 + 4] = 0x43;
+            blob[i * 80 + 5] = 0x05;
+        }
+
+        uint8_t hash2[N * 32] = {};
+        ghostrider::hash_octa(blob, 80, hash2, m_ctx, 0, false);
+
+        for (size_t i = 0; i < N * 32; ++i) {
+            if ((hash1[i] ^ hash2[i]) != referenceValue[i]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+#   endif
+
+    cn_hash_fun func = fn(algorithm);
+    if (!func) {
+        return false;
+    }
+
+    func(test_input, 76, m_hash, m_ctx, 0);
+    return memcmp(m_hash, referenceValue, sizeof m_hash) == 0;
+}
+
+
+template<size_t N>
+bool xmrig::CpuWorker<N>::verify2(const Algorithm &algorithm, const uint8_t *referenceValue)
+{
+    cn_hash_fun func = fn(algorithm);
+    if (!func) {
+        return false;
+    }
+
+    for (size_t i = 0; i < (sizeof(cn_r_test_input) / sizeof(cn_r_test_input[0])); ++i) {
+        const size_t size = cn_r_test_input[i].size;
+        for (size_t k = 0; k < N; ++k) {
+            memcpy(m_job.blob() + (k * size), cn_r_test_input[i].data, size);
+        }
+
+        func(m_job.blob(), size, m_hash, m_ctx, cn_r_test_input[i].height);
+
+        for (size_t k = 0; k < N; ++k) {
+            if (memcmp(m_hash + k * 32, referenceValue + i * 32, sizeof m_hash / N) != 0) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+
+namespace xmrig {
+
+template<>
+bool CpuWorker<1>::verify2(const Algorithm &algorithm, const uint8_t *referenceValue)
+{
+    cn_hash_fun func = fn(algorithm);
+    if (!func) {
+        return false;
+    }
+
+    for (size_t i = 0; i < (sizeof(cn_r_test_input) / sizeof(cn_r_test_input[0])); ++i) {
+        func(cn_r_test_input[i].data, cn_r_test_input[i].size, m_hash, m_ctx, cn_r_test_input[i].height);
+
+        if (memcmp(m_hash, referenceValue + i * 32, sizeof m_hash) != 0) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+} // namespace xmrig
+
+
+template<size_t N>
+void xmrig::CpuWorker<N>::allocateCnCtx()
+{
+    if (m_ctx[0] == nullptr) {
+        int shift = 0;
+
+#       ifdef XMRIG_ALGO_CN_HEAVY
+        // cn-heavy optimization for Zen3 CPUs
+        if (m_memory == cn_heavyZen3Memory) {
+            shift = (id() / 8) * m_algorithm.l3() * 8 + (id() % 8) * 64;
+        }
+#       endif
+
+        CnCtx::create(m_ctx, m_memory->scratchpad() + shift, m_algorithm.l3(), N);
+    }
+}
+
 
 template<size_t N>
 void xmrig::CpuWorker<N>::consumeJob()
@@ -381,7 +535,13 @@ void xmrig::CpuWorker<N>::consumeJob()
     }
 
     auto job = m_miner->job();
+
+#   ifdef XMRIG_FEATURE_BENCHMARK
+    m_benchSize           = job.benchSize();
+    const uint32_t count = m_benchSize ? 1U : kReserveCount;
+#   else
     constexpr uint32_t count = kReserveCount;
+#   endif
 
     m_job.add(job, count, Nonce::CPU);
 
@@ -406,4 +566,4 @@ template class CpuWorker<4>;
 template class CpuWorker<5>;
 template class CpuWorker<8>;
 
-} // namespace xmri
+} // namespace xmrig
