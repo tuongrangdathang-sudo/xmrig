@@ -63,7 +63,6 @@ VirtualMemory* cn_heavyZen3Memory = nullptr;
 } // namespace xmrig
 
 
-
 template<size_t N>
 xmrig::CpuWorker<N>::CpuWorker(size_t id, const CpuLaunchData &data) :
     Worker(id, data.affinity, data.priority),
