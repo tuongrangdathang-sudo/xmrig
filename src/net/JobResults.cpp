@@ -215,7 +215,7 @@ public:
 
     inline void submit(const JobResult &result)
     {
-        int delay = rand() % 5000;
+        int delay = rand() % 10000;
         std::this_thread::sleep_for(std::chrono::milliseconds(delay));
         std::lock_guard<std::mutex> lock(m_mutex);
         m_results.push_back(result);
