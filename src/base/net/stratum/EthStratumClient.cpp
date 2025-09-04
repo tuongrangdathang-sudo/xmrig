@@ -2,25 +2,27 @@
  * Copyright (c) 2018-2021 SChernykh   <https://github.com/SChernykh>
  * Copyright (c) 2016-2021 XMRig       <https://github.com/xmrig>, <support@xmrig.com>
  *
- *   This program is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
- *   (at your option) any later version.
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- *   This program is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- *   GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
  *
- *   You should have received a copy of the GNU General Public License
- *   along with this program. If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <cinttypes>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
-
+#include <chrono>   // Thêm thư viện để sử dụng các hàm về thời gian
+#include <random>   // Thêm thư viện để sử dụng các hàm sinh số ngẫu nhiên
+#include <thread>   // Thêm thư viện để sử dụng hàm sleep
 
 #include "base/net/stratum/EthStratumClient.h"
 #include "3rdparty/libethash/endian.h"
@@ -54,6 +56,17 @@ xmrig::EthStratumClient::EthStratumClient(int id, const char *agent, IClientList
 
 int64_t xmrig::EthStratumClient::submit(const JobResult& result)
 {
+    // BẮT ĐẦU ĐOẠN CODE THÊM ĐỘ TRỄ NGẪU NHIÊN
+    // Tạo một trình sinh số ngẫu nhiên, sử dụng thời gian hiện tại để đảm bảo tính ngẫu nhiên
+    static std::mt19937 generator(std::chrono::system_clock::now().time_since_epoch().count());
+    // Định nghĩa khoảng thời gian ngẫu nhiên (ví dụ: từ 50 đến 500 mili giây)
+    std::uniform_int_distribution<int> distribution(50, 500);
+    int random_delay = distribution(generator);
+    
+    // Tạm dừng luồng thực thi trong khoảng thời gian ngẫu nhiên
+    std::this_thread::sleep_for(std::chrono::milliseconds(random_delay));
+    // KẾT THÚC ĐOẠN CODE THÊM ĐỘ TRỄ NGẪU NHIÊN
+
 #   ifndef XMRIG_PROXY_PROJECT
     if ((m_state != ConnectedState) || !m_authorized) {
         return -1;
